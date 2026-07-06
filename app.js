@@ -3784,13 +3784,29 @@ function toggleLike(obj) {
 
 function buildLikeButton(obj, me, small = false) {
   const likes = obj.likes || {};
-  const count = Object.keys(likes).length;
+  const names = Object.values(likes);
+  const count = names.length;
   const liked = me && !!likes[me.playerId];
   const btn = document.createElement('button');
   btn.className = 'note-like-btn' + (liked ? ' liked' : '') + (small ? ' note-like-sm' : '');
-  btn.innerHTML = (liked ? '❤️' : '🤍') + (count > 0 ? ` <span class="note-like-count">${count}</span>` : '');
-  if (count > 0) btn.title = Object.values(likes).join('、');
-  btn.addEventListener('click', () => toggleLike(obj));
+  const heart = document.createElement('span');
+  heart.textContent = liked ? '❤️' : '🤍';
+  heart.addEventListener('click', e => { e.stopPropagation(); toggleLike(obj); });
+  btn.appendChild(heart);
+  if (count > 0) {
+    btn.title = names.join('、');
+    const cnt = document.createElement('span');
+    cnt.className = 'note-like-count';
+    cnt.textContent = count;
+    // 数字タップで誰が押したか表示（スマホ用）
+    cnt.addEventListener('click', e => {
+      e.stopPropagation();
+      showToast('❤️ ' + names.join('、'));
+    });
+    btn.appendChild(cnt);
+  } else {
+    btn.addEventListener('click', () => toggleLike(obj));
+  }
   return btn;
 }
 
