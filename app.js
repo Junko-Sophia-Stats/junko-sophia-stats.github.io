@@ -3771,45 +3771,6 @@ function buildNoteStatsLine(gameId, playerId) {
   return parts.join(' ／ ');
 }
 
-// いいね（ハート）のトグル。likes は {playerId: 表示名} のマップ
-function toggleLike(obj) {
-  const me = getMyIdentity();
-  if (!me) { showToast('先に自分の名前を選択してください', 'error'); return; }
-  obj.likes = obj.likes || {};
-  if (obj.likes[me.playerId]) delete obj.likes[me.playerId];
-  else obj.likes[me.playerId] = me.name;
-  saveData(state);
-  renderNotesTab();
-}
-
-function buildLikeButton(obj, me, small = false) {
-  const likes = obj.likes || {};
-  const names = Object.values(likes);
-  const count = names.length;
-  const liked = me && !!likes[me.playerId];
-  const btn = document.createElement('button');
-  btn.className = 'note-like-btn' + (liked ? ' liked' : '') + (small ? ' note-like-sm' : '');
-  const heart = document.createElement('span');
-  heart.textContent = liked ? '❤️' : '🤍';
-  heart.addEventListener('click', e => { e.stopPropagation(); toggleLike(obj); });
-  btn.appendChild(heart);
-  if (count > 0) {
-    btn.title = names.join('、');
-    const cnt = document.createElement('span');
-    cnt.className = 'note-like-count';
-    cnt.textContent = count;
-    // 数字タップで誰が押したか表示（スマホ用）
-    cnt.addEventListener('click', e => {
-      e.stopPropagation();
-      showToast('❤️ ' + names.join('、'));
-    });
-    btn.appendChild(cnt);
-  } else {
-    btn.addEventListener('click', () => toggleLike(obj));
-  }
-  return btn;
-}
-
 let noteFilterMine = localStorage.getItem('noteFilterMine') === '1';
 
 /* ===== 起動時の名前選択 ===== */
@@ -3976,7 +3937,6 @@ function buildNoteCard(note, me) {
   meta.className = 'note-date';
   meta.textContent = note.updatedAt ? `${note.updatedAt}（編集済）` : (note.createdAt || '');
   head.append(author, meta);
-  head.appendChild(buildLikeButton(note, me));
 
   if (isMine) {
     const actions = document.createElement('span');
@@ -4056,7 +4016,6 @@ function buildNoteComments(note, me) {
     text.className = 'note-comment-text';
     text.textContent = c.text;
     row.append(author, text);
-    row.appendChild(buildLikeButton(c, me, true));
     if (me && c.playerId === me.playerId) {
       const del = document.createElement('button');
       del.className = 'note-comment-del';
