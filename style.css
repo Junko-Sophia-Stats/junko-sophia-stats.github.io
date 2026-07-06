@@ -193,6 +193,153 @@ table { border-collapse: separate; border-spacing: 0; }
 .header-menu-item:last-child { border-bottom: none; }
 .header-menu-item:active { background: var(--color-neutral-100); }
 
+/* ===== 野球ノート ===== */
+.note-identity-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--color-primary-50, #eff6ff);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.note-identity-card { padding: 16px; margin-bottom: 12px; }
+.note-identity-question {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+.note-identity-row { display: flex; gap: 8px; }
+.note-identity-row .form-select { flex: 1; max-width: 320px; }
+
+.note-write-btn {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.note-game-group { margin-bottom: 20px; }
+
+.note-game-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--color-primary-700);
+  color: var(--text-on-dark);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  padding: 10px 14px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.note-game-date { font-family: var(--font-mono); }
+.note-game-opp { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-game-score { font-family: var(--font-mono); font-weight: 700; }
+
+.note-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-top: none;
+  padding: 12px 14px;
+}
+.note-game-group .note-card:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+
+.note-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.note-author { font-weight: 700; font-size: var(--text-sm); color: var(--text-primary); }
+.note-date { font-size: var(--text-xs); color: var(--text-muted); flex: 1; }
+.note-actions { display: flex; gap: 4px; }
+.note-actions .btn {
+  color: var(--color-primary-600, #2563eb);
+  border: 1px solid var(--border-default);
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+}
+.note-actions .note-del-btn { color: var(--color-danger-500); }
+
+.note-section { margin: 8px 0; }
+.note-section-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.note-section-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0 2px 8px;
+}
+.note-sub-tag {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-primary-600, #2563eb);
+  background: var(--color-primary-50, #eff6ff);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.note-text {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-sec-share .note-text { font-weight: 600; }
+
+.note-comments {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border-default);
+  padding-top: 8px;
+}
+.note-comment {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: var(--text-sm);
+}
+.note-comment-author { font-weight: 700; font-size: var(--text-xs); color: var(--text-secondary); flex-shrink: 0; }
+.note-comment-text { flex: 1; word-break: break-word; }
+.note-comment-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 2px 4px;
+}
+.note-comment-input-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.note-comment-input-row .form-input { flex: 1; height: 38px; }
+
+/* ===== マネージャーバッジ ===== */
+.manager-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-violet-500);
+  background: rgba(139, 92, 246, 0.12);
+  border-radius: var(--radius-full);
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
 /* ===== Offline Banner ===== */
 .offline-banner {
   position: fixed;

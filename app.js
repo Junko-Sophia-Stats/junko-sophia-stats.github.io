@@ -17,7 +17,7 @@ const DATA_REF = firebase.database().ref('teamData');
 const SCHEMA_VERSION = 1;
 
 function freshState() {
-  return { schemaVersion: SCHEMA_VERSION, teamName: '自チーム', seasons: [], games: [], players: [], battingRecords: [], pitchingRecords: [], fieldingRecords: [], leagueTeams: [], leagueResults: [], practiceSessions: [], practiceBattingRecords: [], practicePitchingRecords: [] };
+  return { schemaVersion: SCHEMA_VERSION, teamName: '自チーム', seasons: [], games: [], players: [], battingRecords: [], pitchingRecords: [], fieldingRecords: [], leagueTeams: [], leagueResults: [], practiceSessions: [], practiceBattingRecords: [], practicePitchingRecords: [], gameNotes: [], noteComments: [] };
 }
 
 function toArray(val) {
@@ -39,6 +39,8 @@ function migrate(data) {
   data.practiceSessions = toArray(data.practiceSessions);
   data.practiceBattingRecords = toArray(data.practiceBattingRecords);
   data.practicePitchingRecords = toArray(data.practicePitchingRecords);
+  data.gameNotes = toArray(data.gameNotes);
+  data.noteComments = toArray(data.noteComments);
   if (data.teamName === undefined || data.teamName === null) data.teamName = '自チーム';
   data.players.forEach(p => {
     if (!p.positions) {
@@ -47,6 +49,7 @@ function migrate(data) {
     }
     if (!p.grade) p.grade = null;
     if (p.furigana === undefined) p.furigana = '';
+    if (!p.role) p.role = 'player';
   });
   // シーズンが未作成なら現在年度で自動作成し既存試合を割り当て
   if (!data.seasons.length) {
@@ -73,6 +76,11 @@ function migrate(data) {
 
 function gameTypeLabel(type) {
   return { spring: '春リーグ', fall: '秋リーグ', practice: '練習試合', other: 'その他' }[type] || '−';
+}
+
+// 試合・練習の入力対象となる部員（マネージャーを除く）
+function activePlayers() {
+  return state.players.filter(p => p.role !== 'manager');
 }
 
 function venueLabel(game) {
@@ -293,6 +301,7 @@ function switchTab(name) {
   if (name === 'drill') renderDrillTab();
   if (name === 'practice-stats') renderPracticeStats();
   if (name === 'history') renderHistoryTab();
+  if (name === 'notes') renderNotesTab();
 }
 
 /* ===== Sub-tabs ===== */
@@ -505,12 +514,12 @@ function buildTallyCard(player, existing, options = {}) {
 // 戻り値 { collect } : 入力のある選手の {playerId, battingOrder, appeared, replaces, ...recordFields}
 function buildBattingTally(container, getExisting) {
   container.innerHTML = '';
-  if (!state.players.length) {
+  if (!activePlayers().length) {
     container.appendChild(emptyState('👥', '選手が未登録です', '「選手管理」タブで先に選手を登録してください'));
     return { collect: () => [] };
   }
   const cards = {};
-  [...state.players].sort(comparePlayers).forEach(player => {
+  [...activePlayers()].sort(comparePlayers).forEach(player => {
     const existing = getExisting ? getExisting(player.id) : null;
     const c = buildTallyCard(player, existing, { showOrder: true });
     cards[player.id] = c;
@@ -520,7 +529,7 @@ function buildBattingTally(container, getExisting) {
   return {
     collect() {
       const out = [];
-      state.players.forEach(player => {
+      activePlayers().forEach(player => {
         const c = cards[player.id]; if (!c) return;
         const orderVal = c.getOrder();
         if (!c.hasData() && orderVal == null) return;
@@ -691,7 +700,7 @@ function populateInlinePitcherSelect() {
   const sel = document.getElementById('inline-pitcher-select');
   const prev = sel.value;
   while (sel.options.length > 1) sel.remove(1);
-  [...state.players]
+  [...activePlayers()]
     .filter(p => (p.positions || []).includes('投手'))
     .sort(comparePlayers)
     .forEach(p => {
@@ -878,11 +887,16 @@ function deleteGame(id) {
     battingRecords: state.battingRecords.slice(),
     pitchingRecords: state.pitchingRecords.slice(),
     fieldingRecords: state.fieldingRecords.slice(),
+    gameNotes: state.gameNotes.slice(),
+    noteComments: state.noteComments.slice(),
   };
   state.games = state.games.filter(g => g.id !== id);
   state.battingRecords = state.battingRecords.filter(r => r.gameId !== id);
   state.pitchingRecords = state.pitchingRecords.filter(r => r.gameId !== id);
   state.fieldingRecords = state.fieldingRecords.filter(r => r.gameId !== id);
+  const deletedNoteIds = new Set(state.gameNotes.filter(n => n.gameId === id).map(n => n.id));
+  state.gameNotes = state.gameNotes.filter(n => n.gameId !== id);
+  state.noteComments = state.noteComments.filter(c => !deletedNoteIds.has(c.noteId));
   saveData(state);
   if (currentStatsEntryGameId === id) hideStatsEntry();
   renderGamesList();
@@ -903,7 +917,8 @@ function initPlayerForm() {
       furigana: document.getElementById('player-furigana').value.trim(),
       number: parseInt(document.getElementById('player-number').value) || null,
       grade,
-      positions
+      positions,
+      role: document.querySelector('input[name="player-role"]:checked').value
     };
     state.players.push(player);
     saveData(state);
@@ -970,7 +985,14 @@ function renderPlayersList() {
       confirmModal('選手を削除', `${p.name} を削除しますか？この選手の打撃・投球・守備データも全て削除されます。`, () => deletePlayer(p.id));
     });
     delTd.appendChild(delBtn);
-    tr.append(td(p.number ?? '-'), td(p.name), td(p.furigana || '−'), td(p.grade ? `${p.grade}年` : '−'), td((p.positions || []).join('・')), editTd2, delTd);
+    const nameTd = td(p.name);
+    if (p.role === 'manager') {
+      const badge = document.createElement('span');
+      badge.className = 'manager-badge';
+      badge.textContent = 'マネージャー';
+      nameTd.appendChild(badge);
+    }
+    tr.append(td(p.number ?? '-'), nameTd, td(p.furigana || '−'), td(p.grade ? `${p.grade}年` : '−'), td((p.positions || []).join('・')), editTd2, delTd);
     tbody.appendChild(tr);
   });
 
@@ -1056,7 +1078,7 @@ function renderRosterGrid(area, gameId, type, cols, records, prefix) {
   const tbody = document.createElement('tbody');
   const inputMap = {};
 
-  state.players.forEach(player => {
+  activePlayers().forEach(player => {
     const existing = records.find(r => r.gameId === gameId && r.playerId === player.id) || {};
     const tr = document.createElement('tr');
 
@@ -1148,7 +1170,7 @@ function renderRosterGrid(area, gameId, type, cols, records, prefix) {
   saveBtn.textContent = '全選手のデータを保存する';
   saveBtn.addEventListener('click', () => {
     const collection = type === 'batting' ? 'battingRecords' : 'fieldingRecords';
-    state.players.forEach(player => {
+    activePlayers().forEach(player => {
       const inputs = inputMap[player.id];
       const record = { id: newId(prefix), gameId, playerId: player.id };
       cols.forEach(col => {
@@ -1189,7 +1211,7 @@ function renderBattingEntry(area, gameId) {
     const byPlayer = {};
     rows.forEach(r => { byPlayer[r.playerId] = r; });
     const before = state.battingRecords.slice();
-    state.players.forEach(player => {
+    activePlayers().forEach(player => {
       const idx = state.battingRecords.findIndex(r => r.gameId === gameId && r.playerId === player.id);
       const row = byPlayer[player.id];
       if (row) {
@@ -1340,7 +1362,7 @@ function showStatsEntry(gameId) {
   document.getElementById('game-stats-entry').style.display = '';
 
   const battingBody = document.getElementById('batting-entry-body');
-  if (!state.players.length) {
+  if (!activePlayers().length) {
     battingBody.innerHTML = '';
     battingBody.appendChild(emptyState('👥', '選手が未登録です', '「選手管理」タブで選手を追加してください'));
   } else {
@@ -1382,7 +1404,7 @@ function populateEntryPitcherSelect() {
   const sel = document.getElementById('stats-entry-pitcher-select');
   const prev = sel.value;
   while (sel.options.length > 1) sel.remove(1);
-  [...state.players]
+  [...activePlayers()]
     .filter(p => (p.positions || []).includes('投手'))
     .sort(comparePlayers)
     .forEach(p => {
@@ -2665,7 +2687,17 @@ function showEditPlayerModal(playerId) {
     lbl.append(inp, span); posWrap.appendChild(lbl);
   });
 
+  const roleWrap = document.createElement('div'); roleWrap.className = 'toggle-group';
+  [['player','選手'],['manager','マネージャー']].forEach(([v, t]) => {
+    const lbl = document.createElement('label'); lbl.className = 'toggle-option';
+    const inp = document.createElement('input'); inp.type = 'radio'; inp.name = 'edit-player-role'; inp.value = v;
+    inp.checked = (player.role || 'player') === v;
+    const span = document.createElement('span'); span.textContent = t;
+    lbl.append(inp, span); roleWrap.appendChild(lbl);
+  });
+
   form.append(
+    makeGroup('役割', roleWrap, true),
     makeGroup('選手名 *', nameInput),
     makeGroup('ふりがな', furiInput),
     makeGroup('背番号', numInput),
@@ -2687,7 +2719,8 @@ function showEditPlayerModal(playerId) {
         furigana: furiInput.value.trim(),
         number: parseInt(numInput.value) || null,
         grade: parseInt(gradeSelect.value) || null,
-        positions: Object.entries(posCheckboxes).filter(([, cb]) => cb.checked).map(([pos]) => pos)
+        positions: Object.entries(posCheckboxes).filter(([, cb]) => cb.checked).map(([pos]) => pos),
+        role: document.querySelector('input[name="edit-player-role"]:checked').value
       };
     }
     saveData(state);
@@ -3076,7 +3109,7 @@ function makeDrillBatterSelect() {
   const sel = document.createElement('select');
   sel.className = 'form-select tally-row-select';
   const def = document.createElement('option'); def.value = ''; def.textContent = '-- 打者を選択 --'; sel.appendChild(def);
-  [...state.players].sort(comparePlayers).forEach(p => {
+  [...activePlayers()].sort(comparePlayers).forEach(p => {
     const o = document.createElement('option');
     o.value = p.id;
     o.textContent = (p.number != null ? `#${p.number} ` : '') + p.name;
@@ -3087,7 +3120,7 @@ function makeDrillBatterSelect() {
 
 // 打者を1行追加（行ごとに選手選択＋タップ式入力）。prefill={playerId, record}で既存値を反映（編集用）
 function addDrillBattingRow(prefill) {
-  if (!state.players.length) { showToast('先に選手を登録してください', 'error'); return; }
+  if (!activePlayers().length) { showToast('先に選手を登録してください', 'error'); return; }
   const container = document.getElementById('drill-batting-rows');
   const select = makeDrillBatterSelect();
   if (prefill && prefill.playerId) select.value = prefill.playerId;
@@ -3125,7 +3158,7 @@ function populateDrillPitcherSelect() {
   const sel = document.getElementById('drill-pitcher-select');
   const prev = sel.value;
   while (sel.options.length > 1) sel.remove(1);
-  [...state.players].filter(p => (p.positions || []).includes('投手')).sort(comparePlayers).forEach(p => {
+  [...activePlayers()].filter(p => (p.positions || []).includes('投手')).sort(comparePlayers).forEach(p => {
     const opt = document.createElement('option');
     opt.value = p.id;
     opt.textContent = (p.number != null ? `#${p.number} ` : '') + p.name;
@@ -3687,6 +3720,407 @@ function importJSON(file) {
   reader.readAsText(file);
 }
 
+/* ===== 野球ノート ===== */
+const MY_PLAYER_KEY = 'myPlayerId';
+
+function getMyIdentity() {
+  const id = localStorage.getItem(MY_PLAYER_KEY);
+  if (!id) return null;
+  const p = state.players.find(pl => pl.id === id);
+  return p ? { playerId: p.id, name: memberLabel(p) } : null;
+}
+
+function memberLabel(p) {
+  return (p.number != null ? `#${p.number} ` : '') + p.name;
+}
+
+function nowStamp() {
+  const d = new Date();
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+
+// その試合の打撃・投球成績からノート用の成績テキストを自動生成
+function buildNoteStatsLine(gameId, playerId) {
+  if (!gameId || !playerId) return '';
+  const parts = [];
+  const b = state.battingRecords.find(r => r.gameId === gameId && r.playerId === playerId);
+  if (b && ((b.atBats || 0) > 0 || (b.walks || 0) > 0 || (b.hitByPitch || 0) > 0 || b.appeared)) {
+    let s = `${b.atBats || 0}打数${b.hits || 0}安打`;
+    const ex = [];
+    if (b.doubles) ex.push(`二塁打${b.doubles}`);
+    if (b.triples) ex.push(`三塁打${b.triples}`);
+    if (b.homeRuns) ex.push(`本塁打${b.homeRuns}`);
+    if (b.rbi) ex.push(`打点${b.rbi}`);
+    if (b.runs) ex.push(`得点${b.runs}`);
+    if (b.walks) ex.push(`四球${b.walks}`);
+    if (b.hitByPitch) ex.push(`死球${b.hitByPitch}`);
+    if (b.stolenBases) ex.push(`盗塁${b.stolenBases}`);
+    if (b.strikeouts) ex.push(`三振${b.strikeouts}`);
+    if (ex.length) s += `（${ex.join('・')}）`;
+    parts.push(s);
+  }
+  const p = state.pitchingRecords.find(r => r.gameId === gameId && r.playerId === playerId);
+  if (p) {
+    const ex = [`自責${p.earnedRuns || 0}`];
+    if (p.strikeouts) ex.unshift(`奪三振${p.strikeouts}`);
+    if (p.result === 'W') ex.push('勝利投手');
+    if (p.result === 'L') ex.push('敗戦投手');
+    if (p.result === 'S') ex.push('セーブ');
+    parts.push(`投球: ${p.inningsPitched || 0}回 ${ex.join('・')}`);
+  }
+  return parts.join(' ／ ');
+}
+
+function renderNotesTab() {
+  const container = document.getElementById('notes-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const me = getMyIdentity();
+
+  if (me) {
+    const bar = document.createElement('div');
+    bar.className = 'note-identity-bar';
+    const label = document.createElement('span');
+    label.className = 'note-identity-label';
+    label.textContent = '✍️ ' + me.name + ' として記録中';
+    const switchBtn = document.createElement('button');
+    switchBtn.className = 'btn btn-ghost btn-sm';
+    switchBtn.textContent = '切替';
+    switchBtn.addEventListener('click', () => { localStorage.removeItem(MY_PLAYER_KEY); renderNotesTab(); });
+    bar.append(label, switchBtn);
+    container.appendChild(bar);
+
+    const writeBtn = document.createElement('button');
+    writeBtn.className = 'btn btn-primary note-write-btn';
+    writeBtn.textContent = '＋ ノートを書く';
+    writeBtn.addEventListener('click', () => showNoteModal());
+    container.appendChild(writeBtn);
+  } else {
+    const card = document.createElement('div');
+    card.className = 'card note-identity-card';
+    const q = document.createElement('div');
+    q.className = 'note-identity-question';
+    q.textContent = 'あなたは誰ですか？（この端末に記憶され、ノートの名前になります）';
+    const row = document.createElement('div');
+    row.className = 'note-identity-row';
+    const sel = document.createElement('select');
+    sel.className = 'form-select';
+    const def = document.createElement('option'); def.value = ''; def.textContent = '-- 名前を選択 --'; sel.appendChild(def);
+    [...state.players].sort(comparePlayers).forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = memberLabel(p) + (p.role === 'manager' ? '（マネージャー）' : '');
+      sel.appendChild(o);
+    });
+    const ok = document.createElement('button');
+    ok.className = 'btn btn-primary';
+    ok.textContent = '決定';
+    ok.addEventListener('click', () => {
+      if (!sel.value) { showToast('名前を選択してください', 'error'); return; }
+      localStorage.setItem(MY_PLAYER_KEY, sel.value);
+      renderNotesTab();
+    });
+    row.append(sel, ok);
+    card.append(q, row);
+    container.appendChild(card);
+  }
+
+  // フィード（現在シーズンの試合、新しい順）
+  const season = getCurrentSeason();
+  const seasonGames = season ? state.games.filter(g => g.seasonId === season.id) : state.games;
+  const gameById = new Map(seasonGames.map(g => [g.id, g]));
+  const notesByGame = {};
+  state.gameNotes.forEach(n => {
+    if (gameById.has(n.gameId)) (notesByGame[n.gameId] = notesByGame[n.gameId] || []).push(n);
+  });
+  const gameIds = Object.keys(notesByGame).sort((a, b) => gameById.get(b).date.localeCompare(gameById.get(a).date));
+
+  if (!gameIds.length) {
+    container.appendChild(emptyState('📓', 'まだノートがありません', me ? '「＋ ノートを書く」から最初の振り返りを書いてみましょう' : '名前を選ぶとノートが書けるようになります'));
+    return;
+  }
+
+  gameIds.forEach(gid => {
+    const game = gameById.get(gid);
+    const groupEl = document.createElement('div');
+    groupEl.className = 'note-game-group';
+
+    const head = document.createElement('div');
+    head.className = 'note-game-header';
+    const dateEl = document.createElement('span'); dateEl.className = 'note-game-date'; dateEl.textContent = game.date;
+    const oppEl = document.createElement('span'); oppEl.className = 'note-game-opp'; oppEl.textContent = `vs ${game.opponent}`;
+    const scoreEl = document.createElement('span'); scoreEl.className = 'note-game-score'; scoreEl.textContent = `${game.ourScore}−${game.opponentScore}`;
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (game.result === '勝' ? 'badge-win' : game.result === '負' ? 'badge-loss' : 'badge-draw');
+    badge.textContent = game.result;
+    head.append(dateEl, oppEl, scoreEl, badge);
+    groupEl.appendChild(head);
+
+    notesByGame[gid]
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+      .forEach(note => groupEl.appendChild(buildNoteCard(note, me)));
+    container.appendChild(groupEl);
+  });
+}
+
+function buildNoteCard(note, me) {
+  const isMine = me && note.playerId === me.playerId;
+  const card = document.createElement('div');
+  card.className = 'note-card';
+
+  const head = document.createElement('div');
+  head.className = 'note-card-head';
+  const author = document.createElement('span');
+  author.className = 'note-author';
+  author.textContent = note.authorName || '不明';
+  const meta = document.createElement('span');
+  meta.className = 'note-date';
+  meta.textContent = note.updatedAt ? `${note.updatedAt}（編集済）` : (note.createdAt || '');
+  head.append(author, meta);
+
+  if (isMine) {
+    const actions = document.createElement('span');
+    actions.className = 'note-actions';
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-ghost btn-sm';
+    editBtn.textContent = '編集';
+    editBtn.addEventListener('click', () => showNoteModal(note.gameId));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-ghost btn-sm note-del-btn';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => {
+      confirmModal('ノートを削除', 'このノートとコメントを削除しますか？', () => {
+        state.gameNotes = state.gameNotes.filter(n => n.id !== note.id);
+        state.noteComments = state.noteComments.filter(c => c.noteId !== note.id);
+        saveData(state);
+        renderNotesTab();
+        showToast('ノートを削除しました');
+      });
+    });
+    actions.append(editBtn, delBtn);
+    head.appendChild(actions);
+  }
+  card.appendChild(head);
+
+  const addSection = (label, cls, rows) => {
+    const filled = rows.filter(([, t]) => t && t.trim());
+    if (!filled.length) return;
+    const sec = document.createElement('div');
+    sec.className = 'note-section ' + cls;
+    const st = document.createElement('div');
+    st.className = 'note-section-title';
+    st.textContent = label;
+    sec.appendChild(st);
+    filled.forEach(([sub, t]) => {
+      const row = document.createElement('div');
+      row.className = 'note-section-row';
+      if (sub) {
+        const tag = document.createElement('span');
+        tag.className = 'note-sub-tag';
+        tag.textContent = sub;
+        row.appendChild(tag);
+      }
+      const txt = document.createElement('span');
+      txt.className = 'note-text';
+      txt.textContent = t;
+      row.appendChild(txt);
+      sec.appendChild(row);
+    });
+    card.appendChild(sec);
+  };
+
+  addSection('📊 今日の成績', 'note-sec-stats', [[null, note.statsLine]]);
+  addSection('👍 良かった点', 'note-sec-good', [['打撃', note.batGood], ['守備', note.defGood]]);
+  addSection('⚠️ 課題', 'note-sec-issue', [['打撃', note.batIssue], ['守備', note.defIssue]]);
+  addSection('🎯 今後に向けて', 'note-sec-next', [['打撃', note.batNext], ['守備', note.defNext]]);
+  addSection('📢 チームへの共有', 'note-sec-share', [[null, note.share]]);
+
+  card.appendChild(buildNoteComments(note, me));
+  return card;
+}
+
+function buildNoteComments(note, me) {
+  const wrap = document.createElement('div');
+  wrap.className = 'note-comments';
+  const comments = state.noteComments
+    .filter(c => c.noteId === note.id)
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+  comments.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'note-comment';
+    const author = document.createElement('span');
+    author.className = 'note-comment-author';
+    author.textContent = c.authorName || '不明';
+    const text = document.createElement('span');
+    text.className = 'note-comment-text';
+    text.textContent = c.text;
+    row.append(author, text);
+    if (me && c.playerId === me.playerId) {
+      const del = document.createElement('button');
+      del.className = 'note-comment-del';
+      del.textContent = '✕';
+      del.title = 'コメントを削除';
+      del.addEventListener('click', () => {
+        state.noteComments = state.noteComments.filter(x => x.id !== c.id);
+        saveData(state);
+        renderNotesTab();
+      });
+      row.appendChild(del);
+    }
+    wrap.appendChild(row);
+  });
+
+  if (me) {
+    const inputRow = document.createElement('div');
+    inputRow.className = 'note-comment-input-row';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'form-input';
+    inp.placeholder = 'コメントを書く…';
+    inp.maxLength = 200;
+    const send = document.createElement('button');
+    send.className = 'btn btn-primary btn-sm';
+    send.textContent = '送信';
+    const submit = () => {
+      const t = inp.value.trim();
+      if (!t) return;
+      state.noteComments.push({ id: newId('nc'), noteId: note.id, playerId: me.playerId, authorName: me.name, text: t, createdAt: nowStamp() });
+      saveData(state);
+      renderNotesTab();
+    };
+    send.addEventListener('click', submit);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    inputRow.append(inp, send);
+    wrap.appendChild(inputRow);
+  }
+  return wrap;
+}
+
+// ノート記入モーダル（initialGameId 指定時はその試合を選択して開く）
+function showNoteModal(initialGameId) {
+  const me = getMyIdentity();
+  if (!me) { showToast('先に自分の名前を選択してください', 'error'); return; }
+
+  const season = getCurrentSeason();
+  const seasonGames = (season ? state.games.filter(g => g.seasonId === season.id) : state.games)
+    .slice().sort((a, b) => b.date.localeCompare(a.date));
+  if (!seasonGames.length) { showToast('先に試合を登録してください', 'error'); return; }
+
+  document.getElementById('edit-modal-title').textContent = '野球ノート';
+  const body = document.getElementById('edit-modal-body');
+  body.innerHTML = '';
+
+  const form = document.createElement('div');
+  form.className = 'form-grid';
+  const makeGroup = (labelText, el2, full = true) => {
+    const g = document.createElement('div');
+    g.className = 'form-group' + (full ? ' form-group-full' : '');
+    const l = document.createElement('label');
+    l.className = 'form-label';
+    l.textContent = labelText;
+    g.append(l, el2);
+    return g;
+  };
+  const makeTextarea = (placeholder, rows = 2) => {
+    const t = document.createElement('textarea');
+    t.className = 'form-input';
+    t.rows = rows;
+    t.maxLength = 500;
+    t.placeholder = placeholder;
+    t.style.resize = 'vertical';
+    return t;
+  };
+
+  const gameSel = document.createElement('select');
+  gameSel.className = 'form-select';
+  seasonGames.forEach(g => {
+    const o = document.createElement('option');
+    o.value = g.id;
+    o.textContent = `${g.date} vs ${g.opponent}（${g.ourScore}−${g.opponentScore}）`;
+    gameSel.appendChild(o);
+  });
+
+  const statsInput = document.createElement('input');
+  statsInput.type = 'text';
+  statsInput.className = 'form-input';
+  statsInput.maxLength = 120;
+  statsInput.placeholder = '出場記録から自動反映（編集できます）';
+
+  const batGood = makeTextarea('例: 逆方向への意識が結果につながった');
+  const defGood = makeTextarea('例: カットプレーの判断が良かった');
+  const batIssue = makeTextarea('例: 追い込まれてからの対応');
+  const defIssue = makeTextarea('例: 送球が浮く');
+  const batNext = makeTextarea('例: 毎日ティー30球で外角対応');
+  const defNext = makeTextarea('例: スローイングの足の運びを確認');
+  const share = makeTextarea('例: 相手の左投手はクイックが遅い、次回は積極的に走れる');
+
+  // 選択試合の自分のノートをフォームに反映（なければ成績を自動生成）
+  const loadForGame = (gid) => {
+    const existing = state.gameNotes.find(n => n.gameId === gid && n.playerId === me.playerId);
+    if (existing) {
+      statsInput.value = existing.statsLine || '';
+      batGood.value = existing.batGood || '';
+      defGood.value = existing.defGood || '';
+      batIssue.value = existing.batIssue || '';
+      defIssue.value = existing.defIssue || '';
+      batNext.value = existing.batNext || '';
+      defNext.value = existing.defNext || '';
+      share.value = existing.share || '';
+    } else {
+      statsInput.value = buildNoteStatsLine(gid, me.playerId);
+      [batGood, defGood, batIssue, defIssue, batNext, defNext, share].forEach(t => { t.value = ''; });
+    }
+  };
+  gameSel.addEventListener('change', () => loadForGame(gameSel.value));
+
+  form.append(
+    makeGroup('試合', gameSel),
+    makeGroup('📊 今日の成績', statsInput),
+    makeGroup('👍 良かった点（打撃）', batGood),
+    makeGroup('👍 良かった点（守備）', defGood),
+    makeGroup('⚠️ 課題（打撃）', batIssue),
+    makeGroup('⚠️ 課題（守備）', defIssue),
+    makeGroup('🎯 今後に向けて（打撃）', batNext),
+    makeGroup('🎯 今後に向けて（守備）', defNext),
+    makeGroup('📢 チームへの共有事項', share)
+  );
+  body.appendChild(form);
+  document.getElementById('edit-modal-overlay').style.display = 'flex';
+
+  gameSel.value = initialGameId && seasonGames.find(g => g.id === initialGameId) ? initialGameId : seasonGames[0].id;
+  loadForGame(gameSel.value);
+
+  document.getElementById('edit-modal-save').onclick = () => {
+    const gid = gameSel.value;
+    const fields = {
+      statsLine: statsInput.value.trim(),
+      batGood: batGood.value.trim(),
+      defGood: defGood.value.trim(),
+      batIssue: batIssue.value.trim(),
+      defIssue: defIssue.value.trim(),
+      batNext: batNext.value.trim(),
+      defNext: defNext.value.trim(),
+      share: share.value.trim(),
+    };
+    const hasContent = Object.values(fields).some(v => v);
+    if (!hasContent) { showToast('どれか1項目は入力してください', 'error'); return; }
+
+    const existing = state.gameNotes.find(n => n.gameId === gid && n.playerId === me.playerId);
+    if (existing) {
+      Object.assign(existing, fields, { authorName: me.name, updatedAt: nowStamp() });
+    } else {
+      state.gameNotes.push({ id: newId('n'), gameId: gid, playerId: me.playerId, authorName: me.name, ...fields, createdAt: nowStamp(), updatedAt: null });
+    }
+    saveData(state);
+    closeEditModal();
+    renderNotesTab();
+    showToast('ノートを保存しました ✓');
+  };
+}
+
 /* ===== Init ===== */
 function renderAll() {
   updateSeasonHeader();
@@ -3698,6 +4132,7 @@ function renderAll() {
     if (activeTab.dataset.tab === 'stats') renderStatsTab();
     if (activeTab.dataset.tab === 'drill') renderDrillTab();
     if (activeTab.dataset.tab === 'practice-stats') renderPracticeStats();
+    if (activeTab.dataset.tab === 'notes') renderNotesTab();
   }
 }
 
