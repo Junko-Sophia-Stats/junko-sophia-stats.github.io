@@ -2005,7 +2005,7 @@ function renderGameStats() {
   filterLabel.textContent = '表示範囲：';
   const filterSelect = document.createElement('select');
   filterSelect.className = 'form-select stats-filter-select';
-  [['total','合計'],['all','全て'],['spring','春リーグ'],['fall','秋リーグ'],['practice','練習試合'],['other','その他']].forEach(([v,t]) => {
+  [['all','全て'],['spring','春リーグ'],['fall','秋リーグ'],['practice','練習試合'],['other','その他']].forEach(([v,t]) => {
     const opt = document.createElement('option');
     opt.value = v; opt.textContent = t;
     filterSelect.appendChild(opt);
@@ -2019,8 +2019,7 @@ function renderGameStats() {
   const drawGameStats = (filterVal) => {
     body.innerHTML = '';
     let games = seasonGames;
-    if (filterVal === 'total') games = games.filter(g => g.gameType === 'spring' || g.gameType === 'fall');
-    else if (filterVal !== 'all') games = games.filter(g => g.gameType === filterVal);
+    if (filterVal !== 'all') games = games.filter(g => g.gameType === filterVal);
 
     if (!games.length) {
       body.appendChild(emptyState('📊', 'データがありません', '該当する試合がありません'));
@@ -2047,7 +2046,7 @@ function renderGameStats() {
   };
 
   filterSelect.addEventListener('change', () => drawGameStats(filterSelect.value));
-  drawGameStats('total');
+  drawGameStats('all');
 }
 
 /* ===== GAME HISTORY TAB ===== */
@@ -3772,6 +3771,67 @@ function buildNoteStatsLine(gameId, playerId) {
   return parts.join(' ／ ');
 }
 
+// いいね（ハート）のトグル。likes は {playerId: 表示名} のマップ
+function toggleLike(obj) {
+  const me = getMyIdentity();
+  if (!me) { showToast('先に自分の名前を選択してください', 'error'); return; }
+  obj.likes = obj.likes || {};
+  if (obj.likes[me.playerId]) delete obj.likes[me.playerId];
+  else obj.likes[me.playerId] = me.name;
+  saveData(state);
+  renderNotesTab();
+}
+
+function buildLikeButton(obj, me, small = false) {
+  const likes = obj.likes || {};
+  const count = Object.keys(likes).length;
+  const liked = me && !!likes[me.playerId];
+  const btn = document.createElement('button');
+  btn.className = 'note-like-btn' + (liked ? ' liked' : '') + (small ? ' note-like-sm' : '');
+  btn.innerHTML = (liked ? '❤️' : '🤍') + (count > 0 ? ` <span class="note-like-count">${count}</span>` : '');
+  if (count > 0) btn.title = Object.values(likes).join('、');
+  btn.addEventListener('click', () => toggleLike(obj));
+  return btn;
+}
+
+let noteFilterMine = localStorage.getItem('noteFilterMine') === '1';
+
+/* ===== 起動時の名前選択 ===== */
+let welcomePrompted = false;
+
+function maybeShowWelcome() {
+  if (welcomePrompted) return;
+  if (getMyIdentity()) return;              // 選択済み
+  if (!state.players.length) return;        // 部員未登録なら出さない
+  welcomePrompted = true;
+
+  const sel = document.getElementById('welcome-player-select');
+  while (sel.options.length > 1) sel.remove(1);
+  [...state.players].sort(comparePlayers).forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = memberLabel(p) + (p.role === 'manager' ? '（マネージャー）' : '');
+    sel.appendChild(o);
+  });
+  document.getElementById('welcome-modal-overlay').style.display = 'flex';
+}
+
+function initWelcome() {
+  const overlay = document.getElementById('welcome-modal-overlay');
+  document.getElementById('welcome-confirm').addEventListener('click', () => {
+    const v = document.getElementById('welcome-player-select').value;
+    if (!v) { showToast('名前を選択してください', 'error'); return; }
+    localStorage.setItem(MY_PLAYER_KEY, v);
+    overlay.style.display = 'none';
+    renderAll();
+    const p = state.players.find(pl => pl.id === v);
+    showToast(`ようこそ、${p ? p.name : ''}さん ⚾`);
+  });
+  document.getElementById('welcome-skip').addEventListener('click', () => {
+    overlay.style.display = 'none';
+  });
+}
+
 function renderNotesTab() {
   const container = document.getElementById('notes-container');
   if (!container) return;
@@ -3797,6 +3857,22 @@ function renderNotesTab() {
     writeBtn.textContent = '＋ ノートを書く';
     writeBtn.addEventListener('click', () => showNoteModal());
     container.appendChild(writeBtn);
+
+    // 表示フィルター（全員／自分のみ）
+    const filterBar = document.createElement('div');
+    filterBar.className = 'note-filter-bar';
+    [['0', '👥 全員のノート'], ['1', '📓 自分のノートだけ']].forEach(([v, t]) => {
+      const b = document.createElement('button');
+      b.className = 'note-filter-chip' + ((noteFilterMine ? '1' : '0') === v ? ' active' : '');
+      b.textContent = t;
+      b.addEventListener('click', () => {
+        noteFilterMine = v === '1';
+        localStorage.setItem('noteFilterMine', v);
+        renderNotesTab();
+      });
+      filterBar.appendChild(b);
+    });
+    container.appendChild(filterBar);
   } else {
     const card = document.createElement('div');
     card.className = 'card note-identity-card';
@@ -3831,14 +3907,19 @@ function renderNotesTab() {
   const season = getCurrentSeason();
   const seasonGames = season ? state.games.filter(g => g.seasonId === season.id) : state.games;
   const gameById = new Map(seasonGames.map(g => [g.id, g]));
+  const showMineOnly = noteFilterMine && me;
   const notesByGame = {};
   state.gameNotes.forEach(n => {
-    if (gameById.has(n.gameId)) (notesByGame[n.gameId] = notesByGame[n.gameId] || []).push(n);
+    if (!gameById.has(n.gameId)) return;
+    if (showMineOnly && n.playerId !== me.playerId) return;
+    (notesByGame[n.gameId] = notesByGame[n.gameId] || []).push(n);
   });
   const gameIds = Object.keys(notesByGame).sort((a, b) => gameById.get(b).date.localeCompare(gameById.get(a).date));
 
   if (!gameIds.length) {
-    container.appendChild(emptyState('📓', 'まだノートがありません', me ? '「＋ ノートを書く」から最初の振り返りを書いてみましょう' : '名前を選ぶとノートが書けるようになります'));
+    container.appendChild(emptyState('📓',
+      showMineOnly ? 'あなたのノートはまだありません' : 'まだノートがありません',
+      me ? '「＋ ノートを書く」から最初の振り返りを書いてみましょう' : '名前を選ぶとノートが書けるようになります'));
     return;
   }
 
@@ -3879,6 +3960,7 @@ function buildNoteCard(note, me) {
   meta.className = 'note-date';
   meta.textContent = note.updatedAt ? `${note.updatedAt}（編集済）` : (note.createdAt || '');
   head.append(author, meta);
+  head.appendChild(buildLikeButton(note, me));
 
   if (isMine) {
     const actions = document.createElement('span');
@@ -3958,6 +4040,7 @@ function buildNoteComments(note, me) {
     text.className = 'note-comment-text';
     text.textContent = c.text;
     row.append(author, text);
+    row.appendChild(buildLikeButton(c, me, true));
     if (me && c.playerId === me.playerId) {
       const del = document.createElement('button');
       del.className = 'note-comment-del';
@@ -4203,12 +4286,15 @@ function init() {
   document.getElementById('new-season-cancel').addEventListener('click', () => { document.getElementById('new-season-modal-overlay').style.display = 'none'; });
   document.getElementById('new-season-confirm').addEventListener('click', createNewSeason);
 
+  initWelcome();
+
   // オフライン起動時はローカルミラーから即座に復元
   const cached = localStorage.getItem(LOCAL_STATE_KEY);
   if (cached) {
     try {
       state = migrate(JSON.parse(cached));
       renderAll();
+      maybeShowWelcome();
     } catch (e) { /* 破損時はFirebaseの受信を待つ */ }
   }
 
@@ -4223,6 +4309,7 @@ function init() {
     mirrorToLocal(state);
     renderAll();
     if (currentStatsEntryGameId) showStatsEntry(currentStatsEntryGameId);
+    maybeShowWelcome();
   });
 
   window.addEventListener('online', () => { updateOfflineBanner(); flushLocalChanges(); });

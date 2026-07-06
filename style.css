@@ -193,6 +193,32 @@ table { border-collapse: separate; border-spacing: 0; }
 .header-menu-item:last-child { border-bottom: none; }
 .header-menu-item:active { background: var(--color-neutral-100); }
 
+/* ===== ウェルカムモーダル ===== */
+.welcome-modal {
+  text-align: center;
+  padding: 28px 24px 20px;
+  max-width: 360px;
+  width: 90vw;
+}
+.welcome-logo {
+  border-radius: 50%;
+  background: white;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 12px;
+}
+.welcome-title { margin-bottom: 8px; }
+.welcome-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+.welcome-select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.welcome-actions { justify-content: space-between; }
+
 /* ===== 野球ノート ===== */
 .note-identity-bar {
   display: flex;
@@ -221,8 +247,57 @@ table { border-collapse: separate; border-spacing: 0; }
 
 .note-write-btn {
   width: 100%;
+  margin-bottom: 12px;
+}
+
+/* 表示フィルター */
+.note-filter-bar {
+  display: flex;
+  gap: 6px;
   margin-bottom: 16px;
 }
+.note-filter-chip {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.note-filter-chip.active {
+  background: var(--color-accent-500, #0078ff);
+  border-color: var(--color-accent-500, #0078ff);
+  color: white;
+}
+
+/* いいね（ハート） */
+.note-like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: transform 0.1s;
+  line-height: 1.4;
+}
+.note-like-btn:active { transform: scale(1.2); }
+.note-like-btn.liked { border-color: rgba(220, 38, 38, 0.4); background: rgba(220, 38, 38, 0.06); }
+.note-like-count {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.note-like-sm { padding: 0 6px; font-size: var(--text-xs); border: none; flex-shrink: 0; }
 
 .note-game-group { margin-bottom: 20px; }
 
