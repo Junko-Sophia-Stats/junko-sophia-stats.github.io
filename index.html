@@ -64,10 +64,6 @@
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
       <span class="tab-label">試合結果</span>
     </button>
-    <button class="nav-tab" data-tab="notes">
-      <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"/></svg>
-      <span class="tab-label">野球ノート</span>
-    </button>
     <button class="nav-tab" data-tab="stats">
       <svg class="tab-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       <span class="tab-label">チーム成績</span>
@@ -349,16 +345,6 @@
     </div>
   </section>
 
-  <!-- 野球ノート -->
-  <section class="tab-panel" id="panel-notes">
-    <div class="panel-header">
-      <h1 class="panel-title">野球ノート</h1>
-    </div>
-    <div class="panel-body">
-      <div id="notes-container"></div>
-    </div>
-  </section>
-
 </main>
 
 <!-- 起動時の名前選択モーダル -->
@@ -366,7 +352,7 @@
   <div class="modal welcome-modal">
     <img src="icon-192.png" alt="" width="64" height="64" class="welcome-logo">
     <h3 class="modal-title welcome-title">Junko Stats へようこそ</h3>
-    <p class="welcome-text">あなたの名前を選んでください。<br>ノートやコメントの記名に使われ、この端末に記憶されます。</p>
+    <p class="welcome-text">あなたの名前を選んでください。<br>この端末に記憶されます。</p>
     <select id="welcome-player-select" class="form-select welcome-select">
       <option value="">-- 名前を選択 --</option>
     </select>
