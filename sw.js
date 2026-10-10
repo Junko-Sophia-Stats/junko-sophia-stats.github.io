@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'yakyu-v50';
+const CACHE = 'yakyu-v51';
 const ASSETS = [
   './',
   './index.html',

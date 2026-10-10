@@ -17,7 +17,7 @@ const DATA_REF = firebase.database().ref('teamData');
 const SCHEMA_VERSION = 1;
 
 function freshState() {
-  return { schemaVersion: SCHEMA_VERSION, teamName: '自チーム', seasons: [], games: [], players: [], battingRecords: [], pitchingRecords: [], fieldingRecords: [], leagueTeams: [], leagueResults: [], practiceSessions: [], practiceBattingRecords: [], practicePitchingRecords: [], gameNotes: [], noteComments: [] };
+  return { schemaVersion: SCHEMA_VERSION, teamName: '自チーム', seasons: [], games: [], players: [], battingRecords: [], pitchingRecords: [], fieldingRecords: [], leagueTeams: [], leagueResults: [], practiceSessions: [], practiceBattingRecords: [], gameNotes: [], noteComments: [] };
 }
 
 function toArray(val) {
@@ -38,7 +38,6 @@ function migrate(data) {
   data.leagueResults = toArray(data.leagueResults);
   data.practiceSessions = toArray(data.practiceSessions);
   data.practiceBattingRecords = toArray(data.practiceBattingRecords);
-  data.practicePitchingRecords = toArray(data.practicePitchingRecords);
   data.gameNotes = toArray(data.gameNotes);
   data.noteComments = toArray(data.noteComments);
   if (data.teamName === undefined || data.teamName === null) data.teamName = '自チーム';
@@ -1536,10 +1535,10 @@ function practiceStatsCtx() {
   const season = getCurrentSeason();
   const units = season ? state.practiceSessions.filter(s => s.seasonId === season.id) : state.practiceSessions;
   return {
-    kind: 'practice', batRecords: state.practiceBattingRecords, pitRecords: state.practicePitchingRecords, idKey: 'sessionId',
+    kind: 'practice', batRecords: state.practiceBattingRecords, idKey: 'sessionId',
     units, unitIds: new Set(units.map(s => s.id)),
-    battingPanelId: 'subtab-p-batting-stats', pitchingPanelId: 'subtab-p-pitching-stats',
-    showFilter: false, unitNoun: '回', exactBavg: true,
+    battingPanelId: 'subtab-p-batting-stats',
+    showFilter: false, unitNoun: '回',
   };
 }
 
@@ -1549,16 +1548,15 @@ function renderStatsTab() {
   else renderSubtab('batting-stats');
 }
 
+// 実践成績は打撃のみ（投手集計は廃止。過去の投手記録はデータとして保持するが表示・入力しない）
 function renderPracticeStats() {
-  const activeSubtab = document.querySelector('#panel-practice-stats .subtab.active');
-  renderSubtab(activeSubtab ? activeSubtab.dataset.subtab : 'p-batting-stats');
+  renderSubtab('p-batting-stats');
 }
 
 function renderSubtab(name) {
   if (name === 'batting-stats')    renderBattingStats(gameStatsCtx());
   if (name === 'pitching-stats')   renderPitchingStats(gameStatsCtx());
   if (name === 'p-batting-stats')  renderBattingStats(practiceStatsCtx());
-  if (name === 'p-pitching-stats') renderPitchingStats(practiceStatsCtx());
 }
 
 /* ===== 個人成績タブ ===== */
@@ -1858,17 +1856,6 @@ function renderPitchingStats(ctx = gameStatsCtx()) {
     if (!rows.length) {
       body.appendChild(emptyState('📊', 'データがありません', '投球データを入力してください'));
       return;
-    }
-
-    // 実践は正確な被打数(atBatsAgainst)を保持しているため、被打率をIP由来近似から実測へ上書き
-    if (ctx.exactBavg) {
-      const abMap = {};
-      ctx.pitRecords.filter(r => !filterGameIds || filterGameIds.has(r[ctx.idKey])).forEach(r => {
-        if (!abMap[r.playerId]) abMap[r.playerId] = { ab: 0, h: 0 };
-        abMap[r.playerId].ab += (r.atBatsAgainst || 0);
-        abMap[r.playerId].h += (r.hitsAllowed || 0);
-      });
-      rows.forEach(row => { const m = abMap[row.playerId]; if (m && m.ab > 0) row.bavg = m.h / m.ab; });
     }
 
     const kpiGrid = document.createElement('div');
@@ -3096,10 +3083,9 @@ function renderPlayerComparison(panel, type, rows) {
   draw();
 }
 
-/* ===== 実践練習タブ ===== */
+/* ===== 実践練習タブ（打撃のみ） ===== */
+// 実践練習は打撃成績のみを記録する（投手集計は v51 で廃止）。
 let drillBattingRows = [];   // [{ card, getPlayerId }]
-let drillPitchingInputs = null;   // { inningsPitched, runsAllowed, earnedRuns }
-let drillPitchingPlayerId = null;
 let editingDrillSessionId = null; // 編集中の練習セッションID（新規登録時はnull）
 const openDrillCards = new Set();
 
@@ -3153,69 +3139,9 @@ function collectDrillBatting() {
   return { rows: out };
 }
 
-function populateDrillPitcherSelect() {
-  const sel = document.getElementById('drill-pitcher-select');
-  const prev = sel.value;
-  while (sel.options.length > 1) sel.remove(1);
-  [...activePlayers()].filter(p => (p.positions || []).includes('投手')).sort(comparePlayers).forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = (p.number != null ? `#${p.number} ` : '') + p.name;
-    sel.appendChild(opt);
-  });
-  if (prev) sel.value = prev;
-}
-
-// 投手の手入力フォーム（投球回・失点・自責点の3項目のみ）。被打成績は打者の対戦結果から導出する。
-// prefill={inningsPitched, runsAllowed, earnedRuns} で既存値を反映（編集用）
-function buildDrillPitchingForm(playerId, prefill) {
-  const area = document.getElementById('drill-pitching-form');
-  area.innerHTML = '';
-  drillPitchingInputs = null;
-  drillPitchingPlayerId = null;
-  if (!playerId) return;
-  drillPitchingPlayerId = playerId;
-  const form = document.createElement('div'); form.className = 'pitching-form';
-  const inputs = {};
-  // 投球回
-  const ipGroup = document.createElement('div'); ipGroup.className = 'form-group';
-  const ipLabel = document.createElement('label'); ipLabel.className = 'form-label'; ipLabel.textContent = '投球回';
-  const ip = buildIpControl(prefill ? prefill.inningsPitched : null); inputs.inningsPitched = ip;
-  ipGroup.append(ipLabel, ip.wrap); form.appendChild(ipGroup);
-  // 失点・自責点
-  [['runsAllowed', '失点'], ['earnedRuns', '自責点']].forEach(([key, label]) => {
-    const group = document.createElement('div'); group.className = 'form-group';
-    const lab = document.createElement('label'); lab.className = 'form-label'; lab.textContent = label;
-    const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.value = prefill ? (prefill[key] || 0) : 0; input.className = 'form-input';
-    inputs[key] = input; group.append(lab, input); form.appendChild(group);
-  });
-  area.appendChild(form);
-  drillPitchingInputs = inputs;
-}
-
-// 打者行の対戦結果を合算して、投手の被打成績を生成する（投球回・失点は手入力で別途付与）
-function derivePitchingFromBatting(pitcherId, battingRows) {
-  const agg = { playerId: pitcherId, battersFaced: 0, atBatsAgainst: 0, hitsAllowed: 0, doublesAllowed: 0, triplesAllowed: 0, homeRunsAllowed: 0, strikeouts: 0, walks: 0, hitByPitch: 0 };
-  battingRows.forEach(r => {
-    agg.battersFaced   += (r.atBats || 0) + (r.walks || 0) + (r.hitByPitch || 0) + (r.sacrifices || 0);
-    agg.atBatsAgainst  += (r.atBats || 0);
-    agg.hitsAllowed    += (r.hits || 0);
-    agg.doublesAllowed += (r.doubles || 0);
-    agg.triplesAllowed += (r.triples || 0);
-    agg.homeRunsAllowed += (r.homeRuns || 0);
-    agg.strikeouts     += (r.strikeouts || 0);
-    agg.walks          += (r.walks || 0);
-    agg.hitByPitch     += (r.hitByPitch || 0);
-  });
-  return agg;
-}
-
 function resetDrillForm() {
   document.getElementById('drill-batting-rows').innerHTML = '';
   drillBattingRows = [];
-  document.getElementById('drill-pitcher-select').value = '';
-  document.getElementById('drill-pitching-form').innerHTML = '';
-  drillPitchingInputs = null; drillPitchingPlayerId = null;
   editingDrillSessionId = null;
   document.getElementById('drill-edit-banner').style.display = 'none';
   document.getElementById('drill-submit-btn').textContent = '練習を登録する';
@@ -3230,13 +3156,6 @@ function loadDrillSessionForEdit(sessionId) {
   editingDrillSessionId = sessionId;
   document.getElementById('drill-date').value = session.date;
   document.getElementById('drill-memo').value = session.memo || '';
-  // 投手
-  const pitch = state.practicePitchingRecords.find(r => r.sessionId === sessionId);
-  if (pitch) {
-    const sel = document.getElementById('drill-pitcher-select');
-    sel.value = pitch.playerId;
-    buildDrillPitchingForm(pitch.playerId, { inningsPitched: pitch.inningsPitched, runsAllowed: pitch.runsAllowed, earnedRuns: pitch.earnedRuns });
-  }
   // 打者行
   state.practiceBattingRecords.filter(r => r.sessionId === sessionId).forEach(r => addDrillBattingRow({ playerId: r.playerId, record: r }));
   // 編集モード表示
@@ -3250,7 +3169,6 @@ function initDrillForm() {
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('drill-date').value = today;
   document.getElementById('drill-add-batter').addEventListener('click', () => addDrillBattingRow());
-  document.getElementById('drill-pitcher-select').addEventListener('change', e => buildDrillPitchingForm(e.target.value || null));
   document.getElementById('drill-edit-cancel').addEventListener('click', () => {
     document.getElementById('form-drill').reset();
     document.getElementById('drill-date').value = today;
@@ -3266,31 +3184,18 @@ function initDrillForm() {
     const batRes = collectDrillBatting();
     if (batRes.error) { showToast(batRes.error, 'error'); return; }
     const battingRows = batRes.rows;
-    // 投手を選択している場合、打者の対戦結果を合算し、投球回・失点・自責点（手入力）を付与して投手成績に反映
-    const pitcherId = document.getElementById('drill-pitcher-select').value;
-    let pitchingRows = [];
-    if (pitcherId) {
-      const ipRaw = drillPitchingInputs ? drillPitchingInputs.inningsPitched.getValue() : NaN;
-      if (isNaN(ipRaw) || ipRaw < 0) { showToast('投手の投球回を入力してください', 'error'); return; }
-      const ra = parseInt(drillPitchingInputs.runsAllowed.value) || 0;
-      const er = parseInt(drillPitchingInputs.earnedRuns.value) || 0;
-      if (er > ra) { showToast('自責点は失点以下にしてください', 'error'); return; }
-      pitchingRows = [{ ...derivePitchingFromBatting(pitcherId, battingRows), inningsPitched: ipRaw, runsAllowed: ra, earnedRuns: er }];
-    }
     const commit = () => {
       const editing = editingDrillSessionId;
       const sid = editing || newId('ps');
       if (editing) {
-        // 既存セッションを更新：日付・メモを上書きし、紐づく記録を入れ替え
+        // 既存セッションを更新：日付・メモを上書きし、打撃記録を入れ替え（過去の投手記録はそのまま残す）
         const sess = state.practiceSessions.find(s => s.id === editing);
         if (sess) { sess.date = dateVal; sess.memo = memo; }
         state.practiceBattingRecords = state.practiceBattingRecords.filter(r => r.sessionId !== editing);
-        state.practicePitchingRecords = state.practicePitchingRecords.filter(r => r.sessionId !== editing);
       } else {
         state.practiceSessions.push({ id: sid, seasonId, date: dateVal, memo });
       }
       battingRows.forEach(row => state.practiceBattingRecords.push({ id: newId('pb'), sessionId: sid, ...row }));
-      pitchingRows.forEach(entry => state.practicePitchingRecords.push({ id: newId('pp'), sessionId: sid, ...entry }));
       saveData(state);
       document.getElementById('form-drill').reset();
       document.getElementById('drill-date').value = today;
@@ -3298,8 +3203,8 @@ function initDrillForm() {
       renderDrillTab();
       showToast(editing ? '練習を更新しました ✓' : '練習を登録しました ✓');
     };
-    if (!battingRows.length && !pitchingRows.length) {
-      confirmModal('入力内容の確認', '打撃・投球成績が未入力です。このまま登録しますか？', commit);
+    if (!battingRows.length) {
+      confirmModal('入力内容の確認', '打撃成績が未入力です。このまま登録しますか？', commit);
     } else commit();
   });
 }
@@ -3308,18 +3213,15 @@ function deleteDrillSession(id) {
   const snap = {
     practiceSessions: state.practiceSessions.slice(),
     practiceBattingRecords: state.practiceBattingRecords.slice(),
-    practicePitchingRecords: state.practicePitchingRecords.slice(),
   };
   state.practiceSessions = state.practiceSessions.filter(s => s.id !== id);
   state.practiceBattingRecords = state.practiceBattingRecords.filter(r => r.sessionId !== id);
-  state.practicePitchingRecords = state.practicePitchingRecords.filter(r => r.sessionId !== id);
   saveData(state);
   renderDrillTab();
   showUndoToast('練習を削除しました', () => { Object.assign(state, snap); saveData(state); renderDrillTab(); });
 }
 
 function renderDrillTab() {
-  populateDrillPitcherSelect();
   renderDrillHistory();
 }
 
@@ -3345,7 +3247,6 @@ function renderDrillHistory() {
 
 function buildDrillHistoryCard(session) {
   const bcount = state.practiceBattingRecords.filter(r => r.sessionId === session.id).length;
-  const pcount = state.practicePitchingRecords.filter(r => r.sessionId === session.id).length;
   const card = document.createElement('div'); card.className = 'history-card';
   const header = document.createElement('div');
   header.className = 'history-card-header' + (openDrillCards.has(session.id) ? ' open' : '');
@@ -3354,7 +3255,7 @@ function buildDrillHistoryCard(session) {
   info.append(dateEl);
   if (session.memo) { const m = document.createElement('span'); m.className = 'history-type'; m.textContent = session.memo; info.append(m); }
   const right = document.createElement('div'); right.className = 'history-card-right';
-  const counts = document.createElement('span'); counts.className = 'history-ha'; counts.textContent = `打${bcount}・投${pcount}`;
+  const counts = document.createElement('span'); counts.className = 'history-ha'; counts.textContent = `打者${bcount}人`;
   const chevron = document.createElement('span'); chevron.className = 'history-chevron';
   chevron.innerHTML = '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>';
   right.append(counts, chevron);
@@ -3398,29 +3299,6 @@ function renderDrillDetailContent(container, session) {
     });
     t.appendChild(tb); wrap.appendChild(t); return wrap;
   }, '📊', '打者データなし', '');
-  // 投手成績
-  const pits = state.practicePitchingRecords.filter(r => r.sessionId === session.id);
-  const pitSection = buildGameStatSection('投手成績', pits, (records) => {
-    const rows = records.map(r => {
-      const p = state.players.find(x => x.id === r.playerId);
-      const ipDec = ipToDecimal(r.inningsPitched || 0);
-      const outs = Math.round(ipDec * 3);
-      const ipFmt = (outs % 3) > 0 ? `${Math.floor(outs / 3)}.${outs % 3}` : `${Math.floor(outs / 3)}`;
-      const era = ipDec > 0 ? r.earnedRuns * 9 / ipDec : NaN;
-      const bavg = r.atBatsAgainst > 0 ? r.hitsAllowed / r.atBatsAgainst : NaN;
-      return { name: p ? ((p.number != null ? `#${p.number} ` : '') + p.name) : '不明', ...r, ipFmt, era, bavg };
-    });
-    const wrap = document.createElement('div'); wrap.className = 'table-wrap';
-    const t = document.createElement('table'); t.className = 'games-table history-stats-table';
-    t.innerHTML = '<thead><tr><th>選手名</th><th>投球回</th><th>被安打</th><th>失点</th><th>自責点</th><th>与四球</th><th>奪三振</th><th>防御率</th><th>被打率</th></tr></thead>';
-    const tb = document.createElement('tbody');
-    rows.forEach(r => {
-      const tr = document.createElement('tr');
-      tr.append(td(r.name), td(r.ipFmt), td(r.hitsAllowed), td(r.runsAllowed), td(r.earnedRuns), td(r.walks), td(r.strikeouts), td(isNaN(r.era) ? '---' : r.era.toFixed(2)), td(isNaN(r.bavg) ? '---' : fmtAvg(r.bavg)));
-      tb.appendChild(tr);
-    });
-    t.appendChild(tb); wrap.appendChild(t); return wrap;
-  }, '⚾', '投手データなし', '');
   // アクション
   const actions = document.createElement('div'); actions.className = 'history-card-actions';
   const editBtn = document.createElement('button'); editBtn.className = 'btn btn-ghost-dark btn-sm'; editBtn.textContent = '編集する';
@@ -3428,7 +3306,7 @@ function renderDrillDetailContent(container, session) {
   const delBtn = document.createElement('button'); delBtn.className = 'btn btn-ghost-dark btn-sm'; delBtn.textContent = '削除';
   delBtn.addEventListener('click', e => { e.stopPropagation(); confirmModal('練習を削除', `${session.date} の練習を削除しますか？`, () => deleteDrillSession(session.id)); });
   actions.append(editBtn, delBtn);
-  container.append(batSection, pitSection, actions);
+  container.append(batSection, actions);
 }
 
 function renderPlayerTrendChart(panel, type, fixedPlayerId) {
